@@ -1,0 +1,198 @@
+###############################################
+# Author of unchanged file shown in main_project_skeleton.txt & Copyright: Konstantinos Kamnitsas
+# Aurther of the modified file: AbdoAllah Mohammad
+# B1 - Project - 2024
+###############################################
+import sys
+import os
+
+# Add the project root directory to the Python path
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(project_root)
+
+from create_data import create_data
+from models.logistic_regression import log_regr, create_features_for_poly
+from models.optimizer import grad_descent
+from scripts.utils import mean_logloss, classif_error
+import numpy as np
+import matplotlib.pyplot as plt
+
+def plot_decision_boundary(X, theta, class_labels, degree, marker_size=10):
+    """
+    Plots the decision boundary learned by the model.
+
+    Args:
+        X (numpy.ndarray): Original data points (without bias or polynomial features), dimensions (n_samples, 2).
+        theta (numpy.ndarray): Optimized parameters, dimensions (n_features + 1,).
+        class_labels (numpy.ndarray): Class labels {1, 2}, dimensions (n_samples,).
+        degree (int): Degree of polynomial features used.
+        marker_size (int): Size of the data points for better visibility of the contour.
+    """
+    # Generate a grid of points spanning the range of X
+    x1_min, x1_max = X[:, 0].min() - 0.5, X[:, 0].max() + 0.5
+    x2_min, x2_max = X[:, 1].min() - 0.5, X[:, 1].max() + 0.5
+    x1, x2 = np.meshgrid(np.linspace(x1_min, x1_max, 200), np.linspace(x2_min, x2_max, 200))
+
+    # Flatten the grid and create polynomial features
+    grid_points = np.c_[x1.ravel(), x2.ravel()]
+    grid_points_poly = create_features_for_poly(grid_points, degree)
+    grid_points_poly = np.concatenate((grid_points_poly, np.ones((grid_points_poly.shape[0], 1))), axis=1)  # Add bias
+
+    # Predict probabilities for each point on the grid
+    probabilities = log_regr(grid_points_poly, theta).reshape(x1.shape)
+
+    # Plot the decision boundary and data points
+    plt.contourf(x1, x2, probabilities, levels=[0, 0.5, 1], colors=["red", "green"], alpha=0.3)
+    plt.scatter(X[class_labels == 1, 0], X[class_labels == 1, 1], c='red', edgecolors='black', label='Class 1', s=marker_size)
+    plt.scatter(X[class_labels == 2, 0], X[class_labels == 2, 1], c='green', edgecolors='black', label='Class 2', s=marker_size)
+
+    plt.xlabel('x1')
+    plt.ylabel('x2')
+    plt.xlim([X[:, 0].min() - 0.5, X[:, 0].max() + 0.5])
+    plt.ylim([X[:, 1].min() - 0.5, X[:, 1].max() + 0.5])
+    plt.title(f'Decision Boundary (Degree {degree})')
+    plt.legend()
+    plt.grid(True)
+
+def hyperparameter_tuning(X_train, y_train, X_val, y_val):
+    """
+    Perform hyperparameter tuning by testing various learning rates and iteration counts.
+
+    Args:
+        X_train (numpy.ndarray): Training feature matrix.
+        y_train (numpy.ndarray): Training labels.
+        X_val (numpy.ndarray): Validation feature matrix.
+        y_val (numpy.ndarray): Validation labels.
+    """
+    learning_rates = [0.01, 0.1, 0.5, 1.0]
+    gd_iterations = [100, 500, 1000, 10000]
+    
+    results = []
+    for lr in learning_rates:
+        for n_iter in gd_iterations:
+            theta_opt = grad_descent(X_train, y_train, lr, n_iter)
+            train_error = classif_error(y_train, log_regr(X_train, theta_opt))
+            val_error = classif_error(y_val, log_regr(X_val, theta_opt))
+            results.append((lr, n_iter, train_error, val_error))
+            print(f"Learning Rate: {lr}, Iterations: {n_iter}, Train Error: {train_error:.2f}%, Val Error: {val_error:.2f}%")
+
+    # Display results as a table
+    print("\nHyperparameter Tuning Results:")
+    print("Learning Rate | Iterations | Train Error (%) | Val Error (%)")
+    for res in results:
+        print(f"{res[0]:<14} | {res[1]:<10} | {res[2]:<15.2f} | {res[3]:<12.2f}")
+
+    # Plot train and validation errors
+    plt.figure(figsize=(10, 6))
+    lr_niter_labels = [f"lr={res[0]}, iters={res[1]}" for res in results]
+    train_errors = [res[2] for res in results]
+    val_errors = [res[3] for res in results]
+
+    plt.plot(lr_niter_labels, train_errors, label='Train Error', marker='o')
+    plt.plot(lr_niter_labels, val_errors, label='Validation Error', marker='o')
+    plt.xticks(rotation=45, ha='right')
+    plt.ylabel('Error (%)')
+    plt.title('Hyperparameter Tuning: Train vs Validation Error')
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
+
+def polynomial_degree_comparison(X_train, y_train, X_val, y_val, max_degree=5):
+    """
+    Compare training and validation errors for various polynomial degrees.
+
+    Args:
+        X_train (numpy.ndarray): Training feature matrix.
+        y_train (numpy.ndarray): Training labels.
+        X_val (numpy.ndarray): Validation feature matrix.
+        y_val (numpy.ndarray): Validation labels.
+        max_degree (int): Maximum polynomial degree to test.
+    """
+    train_errors = []
+    val_errors = []
+    degrees = list(range(1, max_degree + 1))
+    best_degree = 1
+    min_val_error = float('inf')
+
+    for degree in degrees:
+        X_train_poly = create_features_for_poly(X_train, degree)
+        X_train_poly = np.concatenate((X_train_poly, np.ones((X_train_poly.shape[0], 1))), axis=1)  # Add bias
+
+        X_val_poly = create_features_for_poly(X_val, degree)
+        X_val_poly = np.concatenate((X_val_poly, np.ones((X_val_poly.shape[0], 1))), axis=1)  # Add bias
+
+        theta_opt = grad_descent(X_train_poly, y_train, learning_rate=0.1, iters_total=1000)
+
+        train_error = classif_error(y_train, log_regr(X_train_poly, theta_opt))
+        val_error = classif_error(y_val, log_regr(X_val_poly, theta_opt))
+
+        train_errors.append(train_error)
+        val_errors.append(val_error)
+
+        print(f"Degree: {degree}, Train Error: {train_error:.2f}%, Validation Error: {val_error:.2f}%")
+
+        if val_error < min_val_error:
+            best_degree = degree
+            min_val_error = val_error
+
+    # Plot train and validation errors
+    plt.figure(figsize=(8, 6))
+    plt.plot(degrees, train_errors, label='Train Error', marker='o')
+    plt.plot(degrees, val_errors, label='Validation Error', marker='o')
+    plt.xlabel('Polynomial Degree')
+    plt.ylabel('Error (%)')
+    plt.title('Train vs Validation Error for Polynomial Degrees')
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
+
+    return best_degree
+
+if __name__ == "__main__":
+    """
+    Modified main_project_skeleton.py integrating all implemented functions.
+    """
+
+    # Hyper-parameters:
+    max_degree = 5  # Maximum polynomial degree to test
+
+    # Create training data
+    n_samples_train = 400
+    [X_train, class_labels_train] = create_data(n_samples_train)
+    y_train = (class_labels_train == 1) * 0 + (class_labels_train == 2) * 1  # Convert labels to {0, 1}
+
+    # Create validation data
+    n_samples_val = 4000
+    [X_val, class_labels_val] = create_data(n_samples_val)
+    y_val = (class_labels_val == 1) * 0 + (class_labels_val == 2) * 1  # Convert labels to {0, 1}
+
+    # Hyperparameter Tuning
+    print("\n--- Hyperparameter Tuning ---")
+    hyperparameter_tuning(X_train, y_train, X_val, y_val)
+
+    # Compare polynomial degrees and determine the best one
+    print("\n--- Polynomial Degree Comparison ---")
+    best_degree = polynomial_degree_comparison(X_train, y_train, X_val, y_val, max_degree=max_degree)
+
+    # Retrain model with the best degree and plot decision boundaries
+    X_train_best = create_features_for_poly(X_train, best_degree)
+    X_train_best = np.concatenate((X_train_best, np.ones((X_train_best.shape[0], 1))), axis=1)
+
+    X_val_best = create_features_for_poly(X_val, best_degree)
+    X_val_best = np.concatenate((X_val_best, np.ones((X_val_best.shape[0], 1))), axis=1)
+
+    theta_opt = grad_descent(X_train_best, y_train, learning_rate=0.1, iters_total=1000)
+
+    plt.figure(figsize=(10, 5))
+    plt.subplot(1, 2, 1)
+    plot_decision_boundary(X_train, theta_opt, class_labels_train, best_degree, marker_size=8)
+    plt.title('Training Data with Decision Boundary')
+
+    plt.subplot(1, 2, 2)
+    plot_decision_boundary(X_val, theta_opt, class_labels_val, best_degree, marker_size=8)
+    plt.title('Validation Data with Decision Boundary')
+
+    plt.tight_layout()
+    plt.show()
